@@ -127,8 +127,61 @@ router.post('/register', validateInput, async (req, res) => {
         <div class="footer">
           <p>Best regards,<br><strong>The JobTracker Pro Team</strong></p>
           <p>📍 Track smarter • Interview better • Land faster</p>
+        </div>
+      </body>
+      </html>
+    `;
+    const emailText = `Welcome to JobTracker Pro, ${name}!\n\nPlease verify your email address by clicking the following link:\n${verificationLink}\n\nThis link expires in 24 hours.\n\nBest regards,\nThe JobTracker Pro Team`;
+
+    const emailSent = await sendEmail({
+      to: email,
+      subject: 'Verify Your Email - JobTracker Pro',
+      html: emailHTML,
+      text: emailText,
+    });
+    if (!emailSent) return res.status(500).json({ error: 'Failed to send verification email' });
+
+    res.status(201).json({ message: 'Registration successful. Check your email to verify.' });
+  } catch (err) {
+    console.error('Registration error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/**
+ * Login (user & admin)
+ */
+router.post('/login', async (req, res) => {
+  try {
+    console.log('Login attempt for:', req.body.email);
+    const { email, password } = req.body;
+    const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    console.log('User found:', user.rows.length > 0);
+
+    if (user.rows.length === 0) {
+      console.log('Invalid credentials: User not found');
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    const validPassword = await bcrypt.compare(password, user.rows[0].password);
+    console.log('Password valid:', validPassword);
+
+    if (!validPassword) {
+      console.log('Invalid credentials: Password mismatch');
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    if (!user.rows[0].is_verified) {
+      console.log('Email not verified');
+      return res.status(400).json({ error: 'Please verify your email' });
+    }
+
+    const token = jwt.sign(
+      { userId: user.rows[0].id, email: user.rows[0].email, isAdmin: user.rows[0].is_admin },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
     );
-    console.log(`Login successful for ${ email }, isAdmin: ${ user.rows[0].is_admin }, token: ${ token } `);
+    console.log(`Login successful for ${email}, isAdmin: ${user.rows[0].is_admin}, token: ${token}`);
 
     res.json({ token, isAdmin: user.rows[0].is_admin });
   } catch (err) {
@@ -171,7 +224,7 @@ router.post('/forgot-password', async (req, res) => {
     const resetToken = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1h' });
     await pool.query('UPDATE users SET reset_token = $1 WHERE email = $2', [resetToken, email]);
 
-    const resetLink = `${ process.env.FRONTEND_URL }/reset-password?token=${resetToken}`;
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
     const emailHTML = `
       <!DOCTYPE html>
       <html>
